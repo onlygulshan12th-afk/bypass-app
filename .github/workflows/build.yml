@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Java 17
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
@@ -20,80 +20,20 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.0'
           channel: 'stable'
 
-      - name: Generate Project & Liquid Glass UI
+      - name: Build App
         run: |
-          flutter create --org com.pulsevive.bypasspro bypass_app
-          cd bypass_app
+          flutter create --org com.pulsevive.bypasspro my_app
+          cd my_app
 
-          cat << 'EOF' > pubspec.yaml
-          name: bypass_app
-          description: "Bypass Pro Liquid Glass App"
-          publish_to: 'none'
-          version: 2.0.0+1
+          # Add Dependencies
+          flutter pub add http url_launcher shared_preferences
 
-          environment:
-            sdk: '>=3.0.0 <4.0.0'
+          # Add Internet Permission to AndroidManifest
+          sed -i '/<manifest/a \    <uses-permission android:name="android.permission.INTERNET"/>' android/app/src/main/AndroidManifest.xml
 
-          dependencies:
-            flutter:
-              sdk: flutter
-            http: ^1.2.0
-            url_launcher: ^6.3.0
-            shared_preferences: ^2.2.3
-
-          flutter:
-            uses-material-design: true
-          EOF
-
-          cat << 'EOF' > android/app/src/main/AndroidManifest.xml
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-              <uses-permission android:name="android.permission.INTERNET"/>
-              <queries>
-                  <intent>
-                      <action android:name="android.intent.action.VIEW" />
-                      <data android:scheme="https" />
-                  </intent>
-                  <intent>
-                      <action android:name="android.intent.action.VIEW" />
-                      <data android:scheme="http" />
-                  </intent>
-                  <intent>
-                      <action android:name="android.intent.action.VIEW" />
-                      <data android:scheme="tg" />
-                  </intent>
-              </queries>
-              <application
-                  android:label="Bypass Pro"
-                  android:name="${applicationName}"
-                  android:icon="@mipmap/ic_launcher"
-                  android:usesCleartextTraffic="true">
-                  <activity
-                      android:name=".MainActivity"
-                      android:exported="true"
-                      android:launchMode="singleTop"
-                      android:theme="@style/LaunchTheme"
-                      android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
-                      android:hardwareAccelerated="true"
-                      android:windowSoftInputMode="adjustResize">
-                      <meta-data
-                        android:name="io.flutter.embedding.android.NormalTheme"
-                        android:resource="@style/NormalTheme"
-                        />
-                      <intent-filter>
-                          <action android:name="android.intent.action.MAIN"/>
-                          <category android:name="android.intent.category.LAUNCHER"/>
-                      </intent-filter>
-                  </activity>
-                  <meta-data
-                      android:name="flutterEmbedding"
-                      android:value="2" />
-              </application>
-          </manifest>
-          EOF
-
+          # Replace main.dart with full Liquid Glass UI
           cat << 'EOF' > lib/main.dart
           import 'dart:convert';
           import 'dart:ui';
@@ -135,8 +75,7 @@ jobs:
             State<BypassHomeScreen> createState() => _BypassHomeScreenState();
           }
 
-          class _BypassHomeScreenState extends State<BypassHomeScreen>
-              with SingleTickerProviderStateMixin {
+          class _BypassHomeScreenState extends State<BypassHomeScreen> {
             final TextEditingController _urlCtrl = TextEditingController();
             final String _tgUrl = "https://t.me/sterniterspro";
             final String _apiEndpoint =
@@ -150,11 +89,11 @@ jobs:
             List> _history = [];
 
             int _themeIndex = 0;
-            final List<Color> _themeColors = const [
-              Color(0xFF38BDF8), // Cyber Blue
-              Color(0xFFF43F5E), // Crimson Red
-              Color(0xFFFACC15), // Electric Gold
-              Color(0xFF10B981), // Emerald Green
+            final List<Color> _themeColors = [
+              const Color(0xFF38BDF8),
+              const Color(0xFFF43F5E),
+              const Color(0xFFFACC15),
+              const Color(0xFF10B981),
             ];
 
             Color get _accent => _themeColors[_themeIndex];
@@ -232,13 +171,6 @@ jobs:
                             color: _accent.withOpacity(0.45),
                             width: 1.4,
                           ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: _accent.withOpacity(0.22),
-                              blurRadius: 32,
-                              spreadRadius: 2,
-                            )
-                          ],
                         ),
                         child: Material(
                           color: Colors.transparent,
@@ -262,17 +194,15 @@ jobs:
                                   fontSize: 20,
                                   fontWeight: FontWeight.w800,
                                   color: Colors.white,
-                                  letterSpacing: 0.3,
                                 ),
                               ),
                               const SizedBox(height: 8),
                               const Text(
-                                "Ad-free instant shortener bypass use karne ke liye pehle hamara official Telegram channel join karein.",
+                                "Ad-free bypass use karne ke liye official channel join karein.",
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   fontSize: 13.5,
                                   color: Colors.white70,
-                                  height: 1.45,
                                 ),
                               ),
                               const SizedBox(height: 22),
@@ -286,13 +216,11 @@ jobs:
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(14),
                                     ),
-                                    elevation: 8,
                                   ),
                                   icon: const Icon(Icons.rocket_launch_rounded, size: 18),
                                   label: const Text(
                                     "1. Join @sterniterspro",
-                                    style: TextStyle(
-                                        fontWeight: FontWeight.w800, fontSize: 14.5),
+                                    style: TextStyle(fontWeight: FontWeight.w800),
                                   ),
                                   onPressed: () async {
                                     final uri = Uri.parse(_tgUrl);
@@ -320,11 +248,7 @@ jobs:
                                     await prefs.setBool('joined_tg_v2', true);
                                     if (ctx.mounted) Navigator.pop(ctx);
                                   },
-                                  child: const Text(
-                                    "2. I Have Joined • Unlock App",
-                                    style: TextStyle(
-                                        fontWeight: FontWeight.w700, fontSize: 13.5),
-                                  ),
+                                  child: const Text("2. I Have Joined"),
                                 ),
                               ),
                             ],
@@ -340,7 +264,7 @@ jobs:
             Future<void> _runBypass() async {
               final raw = _urlCtrl.text.trim();
               if (raw.isEmpty) {
-                setState(() => _errorText = "Bhai pehle shortener link toh daalo!");
+                setState(() => _errorText = "Pehle shortener link paste karo!");
                 return;
               }
 
@@ -381,8 +305,7 @@ jobs:
                   }
 
                   if (out.isEmpty || out == "null" || out == "{}") {
-                    setState(() => _errorText =
-                        "Ye link abhi resolve nahi ho paya, dobara try karo.");
+                    setState(() => _errorText = "Link resolve nahi ho paya.");
                   } else {
                     setState(() {
                       _unlockedUrl = out;
@@ -391,12 +314,10 @@ jobs:
                     _saveToHistory(raw, out);
                   }
                 } else {
-                  setState(() =>
-                      _errorText = "Server error (${res.statusCode}). Try again!");
+                  setState(() => _errorText = "Server Error (${res.statusCode})");
                 }
               } catch (e) {
-                setState(() => _errorText =
-                    "Network timeout ya link invalid hai. Check connection!");
+                setState(() => _errorText = "Network timeout. Connection check karo!");
               } finally {
                 setState(() => _loading = false);
               }
@@ -410,9 +331,7 @@ jobs:
                   _urlCtrl.text = text;
                   _errorText = "";
                 });
-                if (_autoBypass) {
-                  _runBypass();
-                }
+                if (_autoBypass) _runBypass();
               }
             }
 
@@ -422,26 +341,14 @@ jobs:
                 body: Stack(
                   children: [
                     Positioned(
-                      top: -90,
-                      left: -70,
+                      top: -80,
+                      left: -60,
                       child: Container(
-                        width: 260,
-                        height: 260,
+                        width: 240,
+                        height: 240,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: _accent.withOpacity(0.22),
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      bottom: -100,
-                      right: -80,
-                      child: Container(
-                        width: 280,
-                        height: 280,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: const Color(0xFF6366F1).withOpacity(0.18),
+                          color: _accent.withOpacity(0.2),
                         ),
                       ),
                     ),
@@ -449,10 +356,9 @@ jobs:
                       filter: ImageFilter.blur(sigmaX: 70, sigmaY: 70),
                       child: Container(color: Colors.transparent),
                     ),
-
                     SafeArea(
                       child: SingleChildScrollView(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+                        padding: const EdgeInsets.all(16),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
@@ -470,194 +376,94 @@ jobs:
                                 children: [
                                   Row(
                                     children: [
-                                      Container(
-                                        padding: const EdgeInsets.all(8),
-                                        decoration: BoxDecoration(
-                                          color: _accent.withOpacity(0.18),
-                                          borderRadius: BorderRadius.circular(12),
+                                      Icon(Icons.bolt_rounded, color: _accent, size: 24),
+                                      const SizedBox(width: 8),
+                                      const Text(
+                                        "BYPASS PRO",
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w900,
+                                          fontSize: 16,
                                         ),
-                                        child: Icon(Icons.bolt_rounded,
-                                            color: _accent, size: 22),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      const Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            "BYPASS PRO",
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.w900,
-                                              fontSize: 16,
-                                              letterSpacing: 0.8,
-                                            ),
-                                          ),
-                                          Text(
-                                            "Instant Key & Link Unlocker",
-                                            style: TextStyle(
-                                              fontSize: 11,
-                                              color: Colors.white54,
-                                            ),
-                                          ),
-                                        ],
                                       ),
                                     ],
                                   ),
                                   Row(
                                     children: [
                                       IconButton(
-                                        tooltip: "Switch Neon Theme",
+                                        icon: Icon(Icons.palette_rounded, color: _accent),
                                         onPressed: _cycleTheme,
-                                        icon: Icon(Icons.palette_rounded,
-                                            color: _accent),
                                       ),
                                       IconButton(
-                                        tooltip: "Telegram Channel",
+                                        icon: const Icon(Icons.telegram_rounded, color: Colors.white),
                                         onPressed: () => launchUrl(
                                             Uri.parse(_tgUrl),
                                             mode: LaunchMode.externalApplication),
-                                        icon: const Icon(Icons.telegram_rounded,
-                                            color: Colors.white),
                                       ),
                                     ],
                                   )
                                 ],
                               ),
                             ),
-
                             const SizedBox(height: 18),
-
                             Container(
                               padding: const EdgeInsets.all(18),
                               decoration: BoxDecoration(
-                                color: const Color(0xFF101420).withOpacity(0.82),
+                                color: const Color(0xFF101420).withOpacity(0.85),
                                 borderRadius: BorderRadius.circular(24),
-                                border: Border.all(
-                                  color: _accent.withOpacity(0.3),
-                                  width: 1.2,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.45),
-                                    blurRadius: 24,
-                                    offset: const Offset(0, 12),
-                                  )
-                                ],
+                                border: Border.all(color: _accent.withOpacity(0.3)),
                               ),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
-                                      Row(
-                                        children: [
-                                          Container(
-                                            width: 8,
-                                            height: 8,
-                                            decoration: BoxDecoration(
-                                              shape: BoxShape.circle,
-                                              color: _accent,
-                                              boxShadow: [
-                                                BoxShadow(
-                                                    color: _accent, blurRadius: 6)
-                                              ],
-                                            ),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          const Text(
-                                            "PASTE SHORTENER URL",
-                                            style: TextStyle(
-                                              fontSize: 11.5,
-                                              fontWeight: FontWeight.w800,
-                                              color: Colors.white70,
-                                              letterSpacing: 0.7,
-                                            ),
-                                          ),
-                                        ],
+                                      const Text(
+                                        "PASTE LINK",
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w800,
+                                          color: Colors.white70,
+                                        ),
                                       ),
                                       GestureDetector(
                                         onTap: () => setState(
                                             () => _autoBypass = !_autoBypass),
                                         child: Text(
-                                          _autoBypass
-                                              ? "⚡ Auto-Bypass: ON"
-                                              : "Auto-Bypass: OFF",
+                                          _autoBypass ? "⚡ Auto: ON" : "Auto: OFF",
                                           style: TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w700,
-                                            color: _autoBypass
-                                                ? _accent
-                                                : Colors.white38,
-                                          ),
+                                              fontSize: 11,
+                                              color: _autoBypass ? _accent : Colors.white38),
                                         ),
-                                      )
+                                      ),
                                     ],
                                   ),
-                                  const SizedBox(height: 12),
+                                  const SizedBox(height: 10),
                                   TextField(
                                     controller: _urlCtrl,
-                                    style: const TextStyle(
-                                        fontSize: 14, color: Colors.white),
-                                    onSubmitted: (_) => _runBypass(),
                                     decoration: InputDecoration(
-                                      hintText:
-                                          "https://gplinks.co/... or droplink...",
-                                      hintStyle: const TextStyle(
-                                          color: Colors.white30, fontSize: 13.5),
+                                      hintText: "Paste shortener link here...",
+                                      hintStyle: const TextStyle(color: Colors.white30, fontSize: 13),
                                       filled: true,
                                       fillColor: const Color(0xFF07090F),
-                                      contentPadding:
-                                          const EdgeInsets.symmetric(
-                                              horizontal: 16, vertical: 16),
                                       border: OutlineInputBorder(
                                         borderRadius: BorderRadius.circular(16),
-                                        borderSide: BorderSide(
-                                            color: Colors.white.withOpacity(0.08)),
+                                        borderSide: BorderSide.none,
                                       ),
-                                      enabledBorder: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(16),
-                                        borderSide: BorderSide(
-                                            color: Colors.white.withOpacity(0.08)),
-                                      ),
-                                      focusedBorder: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(16),
-                                        borderSide:
-                                            BorderSide(color: _accent, width: 1.4),
-                                      ),
-                                      suffixIcon: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          if (_urlCtrl.text.isNotEmpty)
-                                            IconButton(
-                                              icon: const Icon(Icons.clear_rounded,
-                                                  size: 18, color: Colors.white54),
-                                              onPressed: () =>
-                                                  setState(() => _urlCtrl.clear()),
-                                            ),
-                                          IconButton(
-                                            tooltip: "Paste from Clipboard",
-                                            icon: Icon(
-                                                Icons.content_paste_go_rounded,
-                                                color: _accent),
-                                            onPressed: _pasteAndGo,
-                                          ),
-                                        ],
+                                      suffixIcon: IconButton(
+                                        icon: Icon(Icons.paste_rounded, color: _accent),
+                                        onPressed: _pasteAndGo,
                                       ),
                                     ),
-                                    onChanged: (_) => setState(() {}),
                                   ),
                                   const SizedBox(height: 14),
                                   SizedBox(
                                     width: double.infinity,
-                                    height: 52,
+                                    height: 50,
                                     child: ElevatedButton(
                                       style: ElevatedButton.styleFrom(
                                         backgroundColor: _accent,
                                         foregroundColor: Colors.black,
-                                        elevation: 10,
-                                        shadowColor: _accent.withOpacity(0.5),
                                         shape: RoundedRectangleBorder(
                                           borderRadius: BorderRadius.circular(16),
                                         ),
@@ -665,322 +471,93 @@ jobs:
                                       onPressed: _loading ? null : _runBypass,
                                       child: _loading
                                           ? const SizedBox(
-                                              width: 22,
-                                              height: 22,
-                                              child: CircularProgressIndicator(
-                                                strokeWidth: 2.5,
-                                                color: Colors.black,
-                                              ),
+                                              width: 20,
+                                              height: 20,
+                                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
                                             )
-                                          : const Row(
-                                              mainAxisAlignment:
-                                                  MainAxisAlignment.center,
-                                              children: [
-                                                Icon(Icons.flash_on_rounded,
-                                                    size: 20),
-                                                SizedBox(width: 6),
-                                                Text(
-                                                  "BYPASS NOW",
-                                                  style: TextStyle(
-                                                    fontSize: 15,
-                                                    fontWeight: FontWeight.w900,
-                                                    letterSpacing: 0.8,
-                                                  ),
-                                                ),
-                                              ],
+                                          : const Text(
+                                              "⚡ BYPASS SHORTENER",
+                                              style: TextStyle(fontWeight: FontWeight.w900),
                                             ),
                                     ),
                                   ),
                                   if (_errorText.isNotEmpty) ...[
-                                    const SizedBox(height: 12),
-                                    Container(
-                                      padding: const EdgeInsets.all(12),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFEF4444)
-                                            .withOpacity(0.14),
-                                        borderRadius: BorderRadius.circular(12),
-                                        border: Border.all(
-                                            color: const Color(0xFFEF4444)
-                                                .withOpacity(0.4)),
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          const Icon(Icons.error_outline_rounded,
-                                              color: Color(0xFFF87171), size: 18),
-                                          const SizedBox(width: 8),
-                                          Expanded(
-                                            child: Text(
-                                              _errorText,
-                                              style: const TextStyle(
-                                                  color: Color(0xFFFCA5A5),
-                                                  fontSize: 12.5),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
+                                    const SizedBox(height: 10),
+                                    Text(_errorText, style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
+                                  ]
                                 ],
                               ),
                             ),
-
                             if (_unlockedUrl.isNotEmpty) ...[
                               const SizedBox(height: 16),
                               Container(
-                                padding: const EdgeInsets.all(18),
+                                padding: const EdgeInsets.all(16),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFF0B1F1B).withOpacity(0.85),
-                                  borderRadius: BorderRadius.circular(22),
-                                  border: Border.all(
-                                    color:
-                                        const Color(0xFF10B981).withOpacity(0.45),
-                                    width: 1.3,
-                                  ),
+                                  color: const Color(0xFF0B1F1B),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(color: const Color(0xFF10B981)),
                                 ),
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        const Row(
-                                          children: [
-                                            Icon(Icons.verified_rounded,
-                                                color: Color(0xFF10B981), size: 18),
-                                            SizedBox(width: 6),
-                                            Text(
-                                              "DESTINATION UNLOCKED",
-                                              style: TextStyle(
-                                                color: Color(0xFF10B981),
-                                                fontWeight: FontWeight.w800,
-                                                fontSize: 12,
-                                                letterSpacing: 0.6,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 8, vertical: 3),
-                                          decoration: BoxDecoration(
-                                            color: Colors.white.withOpacity(0.08),
-                                            borderRadius: BorderRadius.circular(8),
-                                          ),
-                                          child: Text(
-                                            "⚡ ${_speedSec.toStringAsFixed(2)}s",
-                                            style: const TextStyle(
-                                                fontSize: 11,
-                                                color: Colors.white70),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
+                                    Text("⚡ Unlocked in ${_speedSec.toStringAsFixed(2)}s",
+                                        style: const TextStyle(color: Color(0xFF10B981), fontWeight: FontWeight.bold)),
+                                    const SizedBox(height: 8),
+                                    SelectableText(_unlockedUrl, style: TextStyle(color: _accent)),
                                     const SizedBox(height: 12),
-                                    Container(
-                                      width: double.infinity,
-                                      padding: const EdgeInsets.all(12),
-                                      decoration: BoxDecoration(
-                                        color: Colors.black.withOpacity(0.45),
-                                        borderRadius: BorderRadius.circular(12),
-                                        border: Border.all(
-                                            color: Colors.white.withOpacity(0.08)),
-                                      ),
-                                      child: SelectableText(
-                                        _unlockedUrl,
-                                        style: TextStyle(
-                                          fontFamily: 'monospace',
-                                          fontSize: 13,
-                                          color: _accent,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 14),
                                     Row(
                                       children: [
                                         Expanded(
-                                          child: SizedBox(
-                                            height: 44,
-                                            child: OutlinedButton.icon(
-                                              style: OutlinedButton.styleFrom(
-                                                foregroundColor: Colors.white,
-                                                side: BorderSide(
-                                                    color:
-                                                        _accent.withOpacity(0.6)),
-                                                shape: RoundedRectangleBorder(
-                                                  borderRadius:
-                                                      BorderRadius.circular(12),
-                                                ),
-                                              ),
-                                              icon: const Icon(Icons.copy_rounded,
-                                                  size: 17),
-                                              label: const Text("Copy Key/Link",
-                                                  style: TextStyle(
-                                                      fontWeight: FontWeight.w700)),
-                                              onPressed: () {
-                                                Clipboard.setData(ClipboardData(
-                                                    text: _unlockedUrl));
-                                                ScaffoldMessenger.of(context)
-                                                    .showSnackBar(
-                                                  const SnackBar(
-                                                    content: Text(
-                                                        "✅ Copied to Clipboard!"),
-                                                    duration: Duration(seconds: 1),
-                                                  ),
-                                                );
-                                              },
-                                            ),
+                                          child: OutlinedButton(
+                                            onPressed: () {
+                                              Clipboard.setData(ClipboardData(text: _unlockedUrl));
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                  const SnackBar(content: Text("Copied!")));
+                                            },
+                                            child: const Text("Copy"),
                                           ),
                                         ),
-                                        const SizedBox(width: 10),
+                                        const SizedBox(width: 8),
                                         Expanded(
-                                          child: SizedBox(
-                                            height: 44,
-                                            child: ElevatedButton.icon(
-                                              style: ElevatedButton.styleFrom(
-                                                backgroundColor:
-                                                    const Color(0xFF10B981),
-                                                foregroundColor: Colors.black,
-                                                shape: RoundedRectangleBorder(
-                                                  borderRadius:
-                                                      BorderRadius.circular(12),
-                                                ),
-                                              ),
-                                              icon: const Icon(
-                                                  Icons.open_in_new_rounded,
-                                                  size: 17),
-                                              label: const Text("Open Link",
-                                                  style: TextStyle(
-                                                      fontWeight: FontWeight.w800)),
-                                              onPressed: () async {
-                                                final uri =
-                                                    Uri.tryParse(_unlockedUrl);
-                                                if (uri != null) {
-                                                  await launchUrl(uri,
-                                                      mode: LaunchMode
-                                                          .externalApplication);
-                                                }
-                                              },
-                                            ),
+                                          child: ElevatedButton(
+                                            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981)),
+                                            onPressed: () => launchUrl(Uri.parse(_unlockedUrl),
+                                                mode: LaunchMode.externalApplication),
+                                            child: const Text("Open", style: TextStyle(color: Colors.black)),
                                           ),
-                                        ),
+                                        )
                                       ],
-                                    ),
+                                    )
                                   ],
                                 ),
-                              ),
-                            ],
-
-                            const SizedBox(height: 22),
-
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                const Text(
-                                  "RECENT UNLOCKS",
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w800,
-                                    color: Colors.white54,
-                                    letterSpacing: 0.8,
-                                  ),
-                                ),
-                                if (_history.isNotEmpty)
-                                  TextButton(
-                                    onPressed: () async {
-                                      final prefs =
-                                          await SharedPreferences.getInstance();
-                                      await prefs.remove('history_v2');
-                                      setState(() => _history.clear());
-                                    },
-                                    child: const Text(
-                                      "Clear All",
-                                      style: TextStyle(
-                                          fontSize: 12, color: Colors.white38),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-
-                            if (_history.isEmpty)
-                              Container(
-                                padding: const EdgeInsets.symmetric(vertical: 28),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.03),
-                                  borderRadius: BorderRadius.circular(18),
-                                  border: Border.all(
-                                      color: Colors.white.withOpacity(0.05)),
-                                ),
-                                child: const Center(
-                                  child: Text(
-                                    "Abhi tak koi link bypass nahi kiya hai",
-                                    style: TextStyle(
-                                        color: Colors.white30, fontSize: 13),
-                                  ),
-                                ),
                               )
-                            else
-                              ..._history.map((item) => Container(
-                                    margin: const EdgeInsets.only(bottom: 8),
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 14, vertical: 11),
-                                    decoration: BoxDecoration(
-                                      color:
-                                          const Color(0xFF101420).withOpacity(0.75),
-                                      borderRadius: BorderRadius.circular(14),
-                                      border: Border.all(
-                                          color: Colors.white.withOpacity(0.06)),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                item['dest'] ?? "",
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: TextStyle(
-                                                  color: _accent,
-                                                  fontWeight: FontWeight.w700,
-                                                  fontSize: 13,
-                                                  fontFamily: 'monospace',
-                                                ),
-                                              ),
-                                              const SizedBox(height: 3),
-                                              Text(
-                                                "${item['time']} • ${item['src']}",
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: const TextStyle(
-                                                    color: Colors.white38,
-                                                    fontSize: 11),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        IconButton(
-                                          icon: const Icon(Icons.copy_rounded,
-                                              size: 18, color: Colors.white60),
-                                          onPressed: () {
-                                            Clipboard.setData(ClipboardData(
-                                                text: item['dest'] ?? ""));
-                                            ScaffoldMessenger.of(context)
-                                                .showSnackBar(
-                                              const SnackBar(
-                                                content: Text("Copied!"),
-                                                duration: Duration(seconds: 1),
-                                              ),
-                                            );
-                                          },
-                                        ),
-                                      ],
-                                    ),
-                                  )),
+                            ],
+                            const SizedBox(height: 20),
+                            const Text("RECENT UNLOCKS", style: TextStyle(fontSize: 11, color: Colors.white38)),
+                            const SizedBox(height: 8),
+                            ..._history.map((item) => Container(
+                                  margin: const EdgeInsets.only(bottom: 6),
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF101420),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(item['dest'] ?? "",
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(color: _accent, fontSize: 12)),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.copy, size: 16),
+                                        onPressed: () => Clipboard.setData(
+                                            ClipboardData(text: item['dest'] ?? "")),
+                                      )
+                                    ],
+                                  ),
+                                ))
                           ],
                         ),
                       ),
@@ -992,11 +569,11 @@ jobs:
           }
           EOF
 
-          flutter pub get
-          flutter build apk --release
+          flutter build apk --release --no-tree-shake-icons
 
-      - name: Upload Ready APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Bypass-Pro-LiquidGlass-APK
-          path: bypass_app/build/app/outputs/flutter-apk/app-release.apk
+          name: Bypass-Pro-App
+          path: my_app/build/app/outputs/flutter-apk/app-release.apk
+
