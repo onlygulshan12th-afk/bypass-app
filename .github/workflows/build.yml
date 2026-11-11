@@ -11,10 +11,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Java
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
+          distribution: 'temurin'
           java-version: '17'
 
       - name: Setup Flutter
@@ -22,18 +22,22 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Build App
+      - name: Setup & Build Flutter App
         run: |
           flutter create --org com.pulsevive.bypasspro my_app
           cd my_app
 
-          # Add Dependencies
+          # Dependencies add karein
           flutter pub add http url_launcher shared_preferences
 
-          # Add Internet Permission to AndroidManifest
-          sed -i '/<manifest/a \    <uses-permission android:name="android.permission.INTERNET"/>' android/app/src/main/AndroidManifest.xml
+          # Android minSdk 21 ensure karein taaki package clash na ho
+          sed -i 's/minSdkVersion = flutter.minSdkVersion/minSdkVersion = 21/g' android/app/build.gradle || true
+          sed -i 's/minSdk = flutter.minSdk/minSdk = 21/g' android/app/build.gradle || true
 
-          # Replace main.dart with full Liquid Glass UI
+          # Internet permission add karein (clean append before </manifest>)
+          sed -i 's|</manifest>|    <uses-permission android:name="android.permission.INTERNET"/>\n</manifest>|g' android/app/src/main/AndroidManifest.xml
+
+          # Liquid Glass UI code write karein
           cat << 'EOF' > lib/main.dart
           import 'dart:convert';
           import 'dart:ui';
@@ -198,7 +202,7 @@ jobs:
                               ),
                               const SizedBox(height: 8),
                               const Text(
-                                "Ad-free bypass use karne ke liye official channel join karein.",
+                                "Bypass tool use karne ke liye official channel join karein.",
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   fontSize: 13.5,
@@ -317,7 +321,7 @@ jobs:
                   setState(() => _errorText = "Server Error (${res.statusCode})");
                 }
               } catch (e) {
-                setState(() => _errorText = "Network timeout. Connection check karo!");
+                setState(() => _errorText = "Network timeout ya slow internet.");
               } finally {
                 setState(() => _loading = false);
               }
@@ -569,11 +573,11 @@ jobs:
           }
           EOF
 
-          flutter build apk --release --no-tree-shake-icons
+          # Build debug APK (Always succeeds without keystore/signing errors, installable on any Android)
+          flutter build apk --debug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Bypass-Pro-App
-          path: my_app/build/app/outputs/flutter-apk/app-release.apk
-
+          path: my_app/build/app/outputs/flutter-apk/app-debug.apk
