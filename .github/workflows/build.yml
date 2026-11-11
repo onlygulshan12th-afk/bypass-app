@@ -1,4 +1,4 @@
-name: Build Bypass Pro APK
+name: Build Bypass Pro Native APK
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-native:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,567 +17,534 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
-      - name: Setup & Build Flutter App
+      - name: Construct Full Native Android App
         run: |
-          flutter create --org com.pulsevive.bypasspro my_app
-          cd my_app
+          mkdir -p native_app/app/src/main/java/com/pulsevive/bypasspro
+          mkdir -p native_app/app/src/main/res/layout
+          mkdir -p native_app/app/src/main/res/values
+          mkdir -p native_app/app/src/main/res/drawable
+          cd native_app
 
-          # Dependencies add karein
-          flutter pub add http url_launcher shared_preferences
-
-          # Android minSdk 21 ensure karein taaki package clash na ho
-          sed -i 's/minSdkVersion = flutter.minSdkVersion/minSdkVersion = 21/g' android/app/build.gradle || true
-          sed -i 's/minSdk = flutter.minSdk/minSdk = 21/g' android/app/build.gradle || true
-
-          # Internet permission add karein (clean append before </manifest>)
-          sed -i 's|</manifest>|    <uses-permission android:name="android.permission.INTERNET"/>\n</manifest>|g' android/app/src/main/AndroidManifest.xml
-
-          # Liquid Glass UI code write karein
-          cat << 'EOF' > lib/main.dart
-          import 'dart:convert';
-          import 'dart:ui';
-          import 'package:flutter/material.dart';
-          import 'package:flutter/services.dart';
-          import 'package:http/http.dart' as http;
-          import 'package:url_launcher/url_launcher.dart';
-          import 'package:shared_preferences/shared_preferences.dart';
-
-          void main() {
-            WidgetsFlutterBinding.ensureInitialized();
-            SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-              statusBarColor: Colors.transparent,
-              statusBarIconBrightness: Brightness.light,
-            ));
-            runApp(const BypassProApp());
+          # Root settings.gradle
+          cat << 'EOF' > settings.gradle
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
           }
-
-          class BypassProApp extends StatelessWidget {
-            const BypassProApp({super.key});
-
-            @override
-            Widget build(BuildContext context) {
-              return MaterialApp(
-                title: 'Bypass Pro',
-                debugShowCheckedModeBanner: false,
-                theme: ThemeData.dark().copyWith(
-                  scaffoldBackgroundColor: const Color(0xFF06080E),
-                ),
-                home: const BypassHomeScreen(),
-              );
-            }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
           }
+          rootProject.name = "Bypass Pro"
+          include ':app'
+          EOF
 
-          class BypassHomeScreen extends StatefulWidget {
-            const BypassHomeScreen({super.key});
-
-            @override
-            State<BypassHomeScreen> createState() => _BypassHomeScreenState();
-          }
-
-          class _BypassHomeScreenState extends State<BypassHomeScreen> {
-            final TextEditingController _urlCtrl = TextEditingController();
-            final String _tgUrl = "https://t.me/sterniterspro";
-            final String _apiEndpoint =
-                "https://altaf-api-maker.base44.app/functions/lookup?tool=shortner-bypass&key=Bypass&q=";
-
-            bool _loading = false;
-            bool _autoBypass = true;
-            String _unlockedUrl = "";
-            String _errorText = "";
-            double _speedSec = 0.0;
-            List> _history = [];
-
-            int _themeIndex = 0;
-            final List<Color> _themeColors = [
-              const Color(0xFF38BDF8),
-              const Color(0xFFF43F5E),
-              const Color(0xFFFACC15),
-              const Color(0xFF10B981),
-            ];
-
-            Color get _accent => _themeColors[_themeIndex];
-
-            @override
-            void initState() {
-              super.initState();
-              _initData();
-            }
-
-            Future<void> _initData() async {
-              final prefs = await SharedPreferences.getInstance();
-              final joined = prefs.getBool('joined_tg_v2') ?? false;
-              final savedTheme = prefs.getInt('theme_idx') ?? 0;
-              final rawHist = prefs.getStringList('history_v2') ?? [];
-
-              setState(() {
-                _themeIndex = savedTheme.clamp(0, _themeColors.length - 1);
-                _history = rawHist.map((e) {
-                  try {
-                    return Map<String, String>.from(jsonDecode(e));
-                  } catch (_) {
-                    return {"src": "Short Link", "dest": e, "time": "Saved"};
-                  }
-                }).toList();
-              });
-
-              if (!joined) {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  _showLiquidTelegramDialog();
-                });
-              }
-            }
-
-            Future<void> _cycleTheme() async {
-              final next = (_themeIndex + 1) % _themeColors.length;
-              setState(() => _themeIndex = next);
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setInt('theme_idx', next);
-            }
-
-            Future<void> _saveToHistory(String src, String dest) async {
-              final prefs = await SharedPreferences.getInstance();
-              final now = TimeOfDay.now();
-              final timeStr =
-                  "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
-              _history.removeWhere((item) => item['dest'] == dest);
-              _history.insert(0, {"src": src, "dest": dest, "time": timeStr});
-              if (_history.length > 12) _history.removeLast();
-
-              await prefs.setStringList(
-                'history_v2',
-                _history.map((e) => jsonEncode(e)).toList(),
-              );
-              setState(() {});
-            }
-
-            void _showLiquidTelegramDialog() {
-              showGeneralDialog(
-                context: context,
-                barrierDismissible: false,
-                barrierColor: Colors.black.withOpacity(0.75),
-                transitionDuration: const Duration(milliseconds: 280),
-                pageBuilder: (ctx, anim1, anim2) {
-                  return BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-                    child: Center(
-                      child: Container(
-                        margin: const EdgeInsets.symmetric(horizontal: 24),
-                        padding: const EdgeInsets.all(22),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF101522).withOpacity(0.88),
-                          borderRadius: BorderRadius.circular(26),
-                          border: Border.all(
-                            color: _accent.withOpacity(0.45),
-                            width: 1.4,
-                          ),
-                        ),
-                        child: Material(
-                          color: Colors.transparent,
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(14),
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: _accent.withOpacity(0.15),
-                                  border: Border.all(color: _accent.withOpacity(0.4)),
-                                ),
-                                child: Icon(Icons.telegram_rounded,
-                                    size: 40, color: _accent),
-                              ),
-                              const SizedBox(height: 16),
-                              const Text(
-                                "VIP Access Required",
-                                style: TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w800,
-                                  color: Colors.white,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              const Text(
-                                "Bypass tool use karne ke liye official channel join karein.",
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 13.5,
-                                  color: Colors.white70,
-                                ),
-                              ),
-                              const SizedBox(height: 22),
-                              SizedBox(
-                                width: double.infinity,
-                                height: 48,
-                                child: ElevatedButton.icon(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: _accent,
-                                    foregroundColor: Colors.black,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(14),
-                                    ),
-                                  ),
-                                  icon: const Icon(Icons.rocket_launch_rounded, size: 18),
-                                  label: const Text(
-                                    "1. Join @sterniterspro",
-                                    style: TextStyle(fontWeight: FontWeight.w800),
-                                  ),
-                                  onPressed: () async {
-                                    final uri = Uri.parse(_tgUrl);
-                                    await launchUrl(uri,
-                                        mode: LaunchMode.externalApplication);
-                                  },
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              SizedBox(
-                                width: double.infinity,
-                                height: 46,
-                                child: OutlinedButton(
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: Colors.white,
-                                    side: BorderSide(
-                                        color: Colors.white.withOpacity(0.2)),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(14),
-                                    ),
-                                  ),
-                                  onPressed: () async {
-                                    final prefs =
-                                        await SharedPreferences.getInstance();
-                                    await prefs.setBool('joined_tg_v2', true);
-                                    if (ctx.mounted) Navigator.pop(ctx);
-                                  },
-                                  child: const Text("2. I Have Joined"),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              );
-            }
-
-            Future<void> _runBypass() async {
-              final raw = _urlCtrl.text.trim();
-              if (raw.isEmpty) {
-                setState(() => _errorText = "Pehle shortener link paste karo!");
-                return;
-              }
-
-              FocusScope.of(context).unfocus();
-              setState(() {
-                _loading = true;
-                _errorText = "";
-                _unlockedUrl = "";
-              });
-
-              final sw = Stopwatch()..start();
-
-              try {
-                final uri =
-                    Uri.parse("$_apiEndpoint${Uri.encodeComponent(raw)}");
-                final res =
-                    await http.get(uri).timeout(const Duration(seconds: 22));
-                sw.stop();
-
-                if (res.statusCode == 200) {
-                  String out = "";
-                  try {
-                    final decoded = jsonDecode(res.body);
-                    if (decoded is Map) {
-                      out = (decoded['result'] ??
-                              decoded['url'] ??
-                              decoded['destination'] ??
-                              decoded['bypassed_url'] ??
-                              decoded['data'] ??
-                              decoded['link'] ??
-                              res.body)
-                          .toString();
-                    } else {
-                      out = res.body.trim();
-                    }
-                  } catch (_) {
-                    out = res.body.trim();
-                  }
-
-                  if (out.isEmpty || out == "null" || out == "{}") {
-                    setState(() => _errorText = "Link resolve nahi ho paya.");
-                  } else {
-                    setState(() {
-                      _unlockedUrl = out;
-                      _speedSec = sw.elapsedMilliseconds / 1000.0;
-                    });
-                    _saveToHistory(raw, out);
-                  }
-                } else {
-                  setState(() => _errorText = "Server Error (${res.statusCode})");
-                }
-              } catch (e) {
-                setState(() => _errorText = "Network timeout ya slow internet.");
-              } finally {
-                setState(() => _loading = false);
-              }
-            }
-
-            Future<void> _pasteAndGo() async {
-              final clip = await Clipboard.getData('text/plain');
-              final text = clip?.text?.trim() ?? "";
-              if (text.isNotEmpty) {
-                setState(() {
-                  _urlCtrl.text = text;
-                  _errorText = "";
-                });
-                if (_autoBypass) _runBypass();
-              }
-            }
-
-            @override
-            Widget build(BuildContext context) {
-              return Scaffold(
-                body: Stack(
-                  children: [
-                    Positioned(
-                      top: -80,
-                      left: -60,
-                      child: Container(
-                        width: 240,
-                        height: 240,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: _accent.withOpacity(0.2),
-                        ),
-                      ),
-                    ),
-                    BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 70, sigmaY: 70),
-                      child: Container(color: Colors.transparent),
-                    ),
-                    SafeArea(
-                      child: SingleChildScrollView(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 10),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.05),
-                                borderRadius: BorderRadius.circular(18),
-                                border: Border.all(
-                                    color: Colors.white.withOpacity(0.1)),
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Icon(Icons.bolt_rounded, color: _accent, size: 24),
-                                      const SizedBox(width: 8),
-                                      const Text(
-                                        "BYPASS PRO",
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.w900,
-                                          fontSize: 16,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  Row(
-                                    children: [
-                                      IconButton(
-                                        icon: Icon(Icons.palette_rounded, color: _accent),
-                                        onPressed: _cycleTheme,
-                                      ),
-                                      IconButton(
-                                        icon: const Icon(Icons.telegram_rounded, color: Colors.white),
-                                        onPressed: () => launchUrl(
-                                            Uri.parse(_tgUrl),
-                                            mode: LaunchMode.externalApplication),
-                                      ),
-                                    ],
-                                  )
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 18),
-                            Container(
-                              padding: const EdgeInsets.all(18),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF101420).withOpacity(0.85),
-                                borderRadius: BorderRadius.circular(24),
-                                border: Border.all(color: _accent.withOpacity(0.3)),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      const Text(
-                                        "PASTE LINK",
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w800,
-                                          color: Colors.white70,
-                                        ),
-                                      ),
-                                      GestureDetector(
-                                        onTap: () => setState(
-                                            () => _autoBypass = !_autoBypass),
-                                        child: Text(
-                                          _autoBypass ? "⚡ Auto: ON" : "Auto: OFF",
-                                          style: TextStyle(
-                                              fontSize: 11,
-                                              color: _autoBypass ? _accent : Colors.white38),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 10),
-                                  TextField(
-                                    controller: _urlCtrl,
-                                    decoration: InputDecoration(
-                                      hintText: "Paste shortener link here...",
-                                      hintStyle: const TextStyle(color: Colors.white30, fontSize: 13),
-                                      filled: true,
-                                      fillColor: const Color(0xFF07090F),
-                                      border: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(16),
-                                        borderSide: BorderSide.none,
-                                      ),
-                                      suffixIcon: IconButton(
-                                        icon: Icon(Icons.paste_rounded, color: _accent),
-                                        onPressed: _pasteAndGo,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 14),
-                                  SizedBox(
-                                    width: double.infinity,
-                                    height: 50,
-                                    child: ElevatedButton(
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: _accent,
-                                        foregroundColor: Colors.black,
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(16),
-                                        ),
-                                      ),
-                                      onPressed: _loading ? null : _runBypass,
-                                      child: _loading
-                                          ? const SizedBox(
-                                              width: 20,
-                                              height: 20,
-                                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
-                                            )
-                                          : const Text(
-                                              "⚡ BYPASS SHORTENER",
-                                              style: TextStyle(fontWeight: FontWeight.w900),
-                                            ),
-                                    ),
-                                  ),
-                                  if (_errorText.isNotEmpty) ...[
-                                    const SizedBox(height: 10),
-                                    Text(_errorText, style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
-                                  ]
-                                ],
-                              ),
-                            ),
-                            if (_unlockedUrl.isNotEmpty) ...[
-                              const SizedBox(height: 16),
-                              Container(
-                                padding: const EdgeInsets.all(16),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF0B1F1B),
-                                  borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(color: const Color(0xFF10B981)),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text("⚡ Unlocked in ${_speedSec.toStringAsFixed(2)}s",
-                                        style: const TextStyle(color: Color(0xFF10B981), fontWeight: FontWeight.bold)),
-                                    const SizedBox(height: 8),
-                                    SelectableText(_unlockedUrl, style: TextStyle(color: _accent)),
-                                    const SizedBox(height: 12),
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: OutlinedButton(
-                                            onPressed: () {
-                                              Clipboard.setData(ClipboardData(text: _unlockedUrl));
-                                              ScaffoldMessenger.of(context).showSnackBar(
-                                                  const SnackBar(content: Text("Copied!")));
-                                            },
-                                            child: const Text("Copy"),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Expanded(
-                                          child: ElevatedButton(
-                                            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981)),
-                                            onPressed: () => launchUrl(Uri.parse(_unlockedUrl),
-                                                mode: LaunchMode.externalApplication),
-                                            child: const Text("Open", style: TextStyle(color: Colors.black)),
-                                          ),
-                                        )
-                                      ],
-                                    )
-                                  ],
-                                ),
-                              )
-                            ],
-                            const SizedBox(height: 20),
-                            const Text("RECENT UNLOCKS", style: TextStyle(fontSize: 11, color: Colors.white38)),
-                            const SizedBox(height: 8),
-                            ..._history.map((item) => Container(
-                                  margin: const EdgeInsets.only(bottom: 6),
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF101420),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(item['dest'] ?? "",
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: TextStyle(color: _accent, fontSize: 12)),
-                                      ),
-                                      IconButton(
-                                        icon: const Icon(Icons.copy, size: 16),
-                                        onPressed: () => Clipboard.setData(
-                                            ClipboardData(text: item['dest'] ?? "")),
-                                      )
-                                    ],
-                                  ),
-                                ))
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }
+          # Root build.gradle
+          cat << 'EOF' > build.gradle
+          plugins {
+              id 'com.android.application' version '8.1.4' apply false
           }
           EOF
 
-          # Build debug APK (Always succeeds without keystore/signing errors, installable on any Android)
-          flutter build apk --debug
+          # App build.gradle
+          cat << 'EOF' > app/build.gradle
+          plugins {
+              id 'com.android.application'
+          }
 
-      - name: Upload APK
+          android {
+              namespace 'com.pulsevive.bypasspro'
+              compileSdk 34
+
+              defaultConfig {
+                  applicationId "com.pulsevive.bypasspro"
+                  minSdk 24
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0.0"
+              }
+
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                      signingConfig signingConfigs.debug
+                  }
+                  debug {
+                      minifyEnabled false
+                  }
+              }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+
+          dependencies {
+              implementation 'androidx.appcompat:appcompat:1.6.1'
+              implementation 'com.google.android.material:material:1.11.0'
+              implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+              implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+          }
+          EOF
+
+          # AndroidManifest.xml
+          cat << 'EOF' > app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <application
+                  android:allowBackup="true"
+                  android:icon="@android:drawable/sym_def_app_icon"
+                  android:label="Bypass Pro"
+                  android:roundIcon="@android:drawable/sym_def_app_icon"
+                  android:supportsRtl="true"
+                  android:theme="@style/Theme.BypassPro"
+                  android:usesCleartextTraffic="true">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:windowSoftInputMode="adjustResize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          # Colors & Themes
+          cat << 'EOF' > app/src/main/res/values/colors.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="bg_dark">#06080E</color>
+              <color name="card_dark">#101524</color>
+              <color name="accent_blue">#38BDF8</color>
+              <color name="text_white">#F8FAFC</color>
+              <color name="text_muted">#94A3B8</color>
+              <color name="success_green">#10B981</color>
+              <color name="input_bg">#070A12</color>
+          </resources>
+          EOF
+
+          cat << 'EOF' > app/src/main/res/values/styles.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="Theme.BypassPro" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+                  <item name="android:windowBackground">@color/bg_dark</item>
+                  <item name="android:statusBarColor">@color/bg_dark</item>
+                  <item name="colorPrimary">@color/accent_blue</item>
+              </style>
+          </resources>
+          EOF
+
+          # Rounded Card Drawables
+          cat << 'EOF' > app/src/main/res/drawable/card_bg.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android">
+              <solid android:color="#121829" />
+              <corners android:radius="22dp" />
+              <stroke android:width="1.2dp" android:color="#3338BDF8" />
+          </shape>
+          EOF
+
+          cat << 'EOF' > app/src/main/res/drawable/result_bg.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android">
+              <solid android:color="#0D231C" />
+              <corners android:radius="18dp" />
+              <stroke android:width="1.2dp" android:color="#4D10B981" />
+          </shape>
+          EOF
+
+          cat << 'EOF' > app/src/main/res/drawable/input_bg.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android">
+              <solid android:color="#07090F" />
+              <corners android:radius="14dp" />
+              <stroke android:width="1dp" android:color="#26FFFFFF" />
+          </shape>
+          EOF
+
+          cat << 'EOF' > app/src/main/res/drawable/btn_glow.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android">
+              <gradient android:startColor="#0EA5E9" android:endColor="#38BDF8" android:angle="45"/>
+              <corners android:radius="14dp"/>
+          </shape>
+          EOF
+
+          # Layout XML
+          cat << 'EOF' > app/src/main/res/layout/activity_main.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+              xmlns:app="http://schemas.android.com/apk/res-auto"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:background="@color/bg_dark"
+              android:fillViewport="true">
+
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:orientation="vertical"
+                  android:padding="16dp">
+
+                  <!-- Header Bar -->
+                  <LinearLayout
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:background="@drawable/card_bg"
+                      android:padding="12dp"
+                      android:gravity="center_vertical"
+                      android:orientation="horizontal">
+
+                      <TextView
+                          android:layout_width="0dp"
+                          android:layout_height="wrap_content"
+                          android:layout_weight="1"
+                          android:text="⚡ BYPASS PRO"
+                          android:textColor="@color/accent_blue"
+                          android:textSize="18sp"
+                          android:textStyle="bold" />
+
+                      <ImageView
+                          android:id="@+id/btnTgHeader"
+                          android:layout_width="38dp"
+                          android:layout_height="38dp"
+                          android:padding="6dp"
+                          android:src="@android:drawable/ic_menu_send"
+                          app:tint="@color/text_white" />
+                  </LinearLayout>
+
+                  <!-- Bypass Card -->
+                  <LinearLayout
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="16dp"
+                      android:background="@drawable/card_bg"
+                      android:orientation="vertical"
+                      android:padding="18dp">
+
+                      <TextView
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:text="PASTE SHORTENER URL"
+                          android:textColor="@color/text_muted"
+                          android:textSize="11sp"
+                          android:textStyle="bold" />
+
+                      <LinearLayout
+                          android:layout_width="match_parent"
+                          android:layout_height="52dp"
+                          android:layout_marginTop="10dp"
+                          android:background="@drawable/input_bg"
+                          android:gravity="center_vertical"
+                          android:orientation="horizontal"
+                          android:paddingStart="12dp"
+                          android:paddingEnd="6dp">
+
+                          <EditText
+                              android:id="@+id/etUrl"
+                              android:layout_width="0dp"
+                              android:layout_height="match_parent"
+                              android:layout_weight="1"
+                              android:background="@null"
+                              android:hint="https://gplinks.co/... or droplink..."
+                              android:textColor="@color/text_white"
+                              android:textColorHint="#475569"
+                              android:textSize="13sp" />
+
+                          <Button
+                              android:id="@+id/btnPaste"
+                              style="@style/Widget.MaterialComponents.Button.TextButton"
+                              android:layout_width="wrap_content"
+                              android:layout_height="38dp"
+                              android:text="PASTE"
+                              android:textColor="@color/accent_blue"
+                              android:textSize="12sp"
+                              android:textStyle="bold" />
+                      </LinearLayout>
+
+                      <androidx.appcompat.widget.AppCompatButton
+                          android:id="@+id/btnBypass"
+                          android:layout_width="match_parent"
+                          android:layout_height="52dp"
+                          android:layout_marginTop="14dp"
+                          android:background="@drawable/btn_glow"
+                          android:text="⚡ BYPASS SHORTENER"
+                          android:textColor="#000000"
+                          android:textSize="14sp"
+                          android:textStyle="bold" />
+
+                      <ProgressBar
+                          android:id="@+id/progressBar"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:layout_gravity="center"
+                          android:layout_marginTop="12dp"
+                          android:indeterminateTint="@color/accent_blue"
+                          android:visibility="gone" />
+                  </LinearLayout>
+
+                  <!-- Result Box -->
+                  <LinearLayout
+                      android:id="@+id/layoutResult"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="16dp"
+                      android:background="@drawable/result_bg"
+                      android:orientation="vertical"
+                      android:padding="16dp"
+                      android:visibility="gone">
+
+                      <TextView
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:text="✅ UNLOCKED DESTINATION"
+                          android:textColor="@color/success_green"
+                          android:textSize="12sp"
+                          android:textStyle="bold" />
+
+                      <TextView
+                          android:id="@+id/tvResult"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:layout_marginTop="8dp"
+                          android:background="#1A000000"
+                          android:padding="10dp"
+                          android:textColor="@color/text_white"
+                          android:textIsSelectable="true"
+                          android:textSize="13sp" />
+
+                      <LinearLayout
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:layout_marginTop="12dp"
+                          android:orientation="horizontal">
+
+                          <Button
+                              android:id="@+id/btnCopy"
+                              style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                              android:layout_width="0dp"
+                              android:layout_height="44dp"
+                              android:layout_weight="1"
+                              android:text="Copy Key"
+                              android:textColor="@color/text_white" />
+
+                          <View
+                              android:layout_width="10dp"
+                              android:layout_height="1dp" />
+
+                          <Button
+                              android:id="@+id/btnOpen"
+                              android:layout_width="0dp"
+                              android:layout_height="44dp"
+                              android:layout_weight="1"
+                              android:backgroundTint="@color/success_green"
+                              android:text="Open Link"
+                              android:textColor="#000000" />
+                      </LinearLayout>
+                  </LinearLayout>
+
+              </LinearLayout>
+          </ScrollView>
+          EOF
+
+          # Pure Native MainActivity.java
+          cat << 'EOF' > app/src/main/java/com/pulsevive/bypasspro/MainActivity.java
+          package com.pulsevive.bypasspro;
+
+          import android.content.ClipData;
+          import android.content.ClipboardManager;
+          import android.content.Context;
+          import android.content.DialogInterface;
+          import android.content.Intent;
+          import android.content.SharedPreferences;
+          import android.net.Uri;
+          import android.os.Bundle;
+          import android.os.Handler;
+          import android.os.Looper;
+          import android.view.View;
+          import android.widget.Button;
+          import android.widget.EditText;
+          import android.widget.ImageView;
+          import android.widget.LinearLayout;
+          import android.widget.ProgressBar;
+          import android.widget.TextView;
+          import android.widget.Toast;
+
+          import androidx.appcompat.app.AlertDialog;
+          import androidx.appcompat.app.AppCompatActivity;
+
+          import org.json.JSONObject;
+
+          import java.io.IOException;
+          import java.net.URLEncoder;
+
+          import okhttp3.Call;
+          import okhttp3.Callback;
+          import okhttp3.OkHttpClient;
+          import okhttp3.Request;
+          import okhttp3.Response;
+
+          public class MainActivity extends AppCompatActivity {
+
+              private static final String TG_CHANNEL = "https://t.me/sterniterspro";
+              private static final String API_BASE = "https://altaf-api-maker.base44.app/functions/lookup?tool=shortner-bypass&key=Bypass&q=";
+
+              private EditText etUrl;
+              private Button btnBypass, btnPaste, btnCopy, btnOpen;
+              private ProgressBar progressBar;
+              private LinearLayout layoutResult;
+              private TextView tvResult;
+              private ImageView btnTgHeader;
+
+              private OkHttpClient client;
+              private SharedPreferences prefs;
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  setContentView(R.layout.activity_main);
+
+                  client = new OkHttpClient();
+                  prefs = getSharedPreferences("bypass_prefs", MODE_PRIVATE);
+
+                  etUrl = findViewById(R.id.etUrl);
+                  btnBypass = findViewById(R.id.btnBypass);
+                  btnPaste = findViewById(R.id.btnPaste);
+                  btnCopy = findViewById(R.id.btnCopy);
+                  btnOpen = findViewById(R.id.btnOpen);
+                  progressBar = findViewById(R.id.progressBar);
+                  layoutResult = findViewById(R.id.layoutResult);
+                  tvResult = findViewById(R.id.tvResult);
+                  btnTgHeader = findViewById(R.id.btnTgHeader);
+
+                  checkTelegramJoin();
+
+                  btnTgHeader.setOnClickListener(v -> openTelegram());
+                  btnPaste.setOnClickListener(v -> pasteFromClipboard());
+                  btnBypass.setOnClickListener(v -> executeBypass());
+              }
+
+              private void checkTelegramJoin() {
+                  boolean joined = prefs.getBoolean("tg_joined", false);
+                  if (!joined) {
+                      new AlertDialog.Builder(this)
+                              .setTitle("VIP Access Required")
+                              .setMessage("Shortener bypass use karne ke liye pehle hamara Telegram channel join karein.")
+                              .setCancelable(false)
+                              .setPositiveButton("1. Join @sterniterspro", (dialog, which) -> openTelegram())
+                              .setNegativeButton("2. I Have Joined", (dialog, which) -> {
+                                  prefs.edit().putBoolean("tg_joined", true).apply();
+                                  dialog.dismiss();
+                              })
+                              .show();
+                  }
+              }
+
+              private void openTelegram() {
+                  Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(TG_CHANNEL));
+                  startActivity(intent);
+              }
+
+              private void pasteFromClipboard() {
+                  ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                  if (clipboard != null && clipboard.hasPrimaryClip()) {
+                      ClipData.Item item = clipboard.getPrimaryClip().getItemAt(0);
+                      if (item != null && item.getText() != null) {
+                          etUrl.setText(item.getText().toString().trim());
+                          executeBypass();
+                      }
+                  }
+              }
+
+              private void executeBypass() {
+                  String url = etUrl.getText().toString().trim();
+                  if (url.isEmpty()) {
+                      Toast.makeText(this, "Bhai pehle link paste karo!", Toast.LENGTH_SHORT).show();
+                      return;
+                  }
+
+                  progressBar.setVisibility(View.VISIBLE);
+                  btnBypass.setEnabled(false);
+                  layoutResult.setVisibility(View.GONE);
+
+                  try {
+                      String endpoint = API_BASE + URLEncoder.encode(url, "UTF-8");
+                      Request request = new Request.Builder().url(endpoint).build();
+
+                      client.newCall(request).enqueue(new Callback() {
+                          @Override
+                          public void onFailure(Call call, IOException e) {
+                              new Handler(Looper.getMainLooper()).post(() -> {
+                                  progressBar.setVisibility(View.GONE);
+                                  btnBypass.setEnabled(true);
+                                  Toast.makeText(MainActivity.this, "Network Error! Connection check karein.", Toast.LENGTH_SHORT).show();
+                              });
+                          }
+
+                          @Override
+                          public void onResponse(Call call, Response response) throws IOException {
+                              String raw = response.body().string();
+                              String destination = raw;
+                              try {
+                                  JSONObject json = new JSONObject(raw);
+                                  if (json.has("result")) destination = json.getString("result");
+                                  else if (json.has("url")) destination = json.getString("url");
+                                  else if (json.has("destination")) destination = json.getString("destination");
+                              } catch (Exception ignored) {}
+
+                              final String finalDestination = destination.trim();
+
+                              new Handler(Looper.getMainLooper()).post(() -> {
+                                  progressBar.setVisibility(View.GONE);
+                                  btnBypass.setEnabled(true);
+                                  layoutResult.setVisibility(View.VISIBLE);
+                                  tvResult.setText(finalDestination);
+
+                                  btnCopy.setOnClickListener(v -> {
+                                      ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                                      ClipData clip = ClipData.newPlainText("Bypassed URL", finalDestination);
+                                      if (clipboard != null) clipboard.setPrimaryClip(clip);
+                                      Toast.makeText(MainActivity.this, "Copied to Clipboard!", Toast.LENGTH_SHORT).show();
+                                  });
+
+                                  btnOpen.setOnClickListener(v -> {
+                                      Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(finalDestination));
+                                      startActivity(intent);
+                                  });
+                              });
+                          }
+                      });
+                  } catch (Exception e) {
+                      progressBar.setVisibility(View.GONE);
+                      btnBypass.setEnabled(true);
+                      Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                  }
+              }
+          }
+          EOF
+
+      - name: Build Native Release APK
+        run: |
+          cd native_app
+          chmod +x gradlew || gradle wrapper
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Upload Native APK
         uses: actions/upload-artifact@v4
         with:
-          name: Bypass-Pro-App
-          path: my_app/build/app/outputs/flutter-apk/app-debug.apk
+          name: Bypass-Pro-Native-APK
+          path: native_app/app/build/outputs/apk/release/app-release.apk
